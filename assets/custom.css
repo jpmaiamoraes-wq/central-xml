@@ -1,0 +1,15 @@
+/* Título principal */
+.resumo-titulo {
+  font-size: 1.5rem;        /* aumenta ou diminui conforme desejar */
+  font-weight: 630;         /* negrito moderado */
+  color: #1a2c3d;           /* cor personalizada (azul escuro elegante) */
+}
+
+/* Espaçamento entre botões (remove gap excessivo) */
+.btn-group-tight .btn {
+  margin-right: 6px;        /* ajusta a distância entre os botões */
+}
+
+.btn-group-tight .btn:last-child {
+  margin-right: 0;          /* remove espaço após o último botão */
+}
