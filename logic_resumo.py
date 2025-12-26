@@ -92,7 +92,7 @@ def _parse_fields_resumo(xml_bytes: bytes):
         return None, None, None, None, (None, None), ""
 
     # --- NFSe: tenta detectar antes de procurar infNFe/infCTe ---
-    nfse_obj = None
+    
     try:
         xml_text = xml_bytes.decode("utf-8", errors="ignore")
         nfse_obj = detect_and_parse_nfse(xml_text)
@@ -100,15 +100,21 @@ def _parse_fields_resumo(xml_bytes: bytes):
         nfse_obj = None
 
     if nfse_obj:
+        
         numero = (nfse_obj.numero or "").strip()
         verif = (nfse_obj.codigo_verificacao or "").strip()
         prest = digits(nfse_obj.prestador_cnpjcpf or "")
-        chave_nfse = f"NFSE|{prest}|{numero}|{verif}"
-
         dt_ref = nfse_obj.competencia or nfse_obj.data_emissao
         ano = dt_ref.year if dt_ref else None
         mes = dt_ref.month if dt_ref else None
         data_str = dt_ref.isoformat() if dt_ref else ""
+        
+        if prest and numero and verif:
+            chave_nfse = f"NFSE|{prest}|{numero}|{verif}"
+        elif prest and numero:
+            chave_nfse = f"NFSE|{prest}|{numero}"
+        else:
+            chave_nfse = None
 
         emit_cnpj = prest
         dest_cnpj = digits(nfse_obj.tomador_cnpjcpf or "")
@@ -121,7 +127,8 @@ def _parse_fields_resumo(xml_bytes: bytes):
             (ano, mes),
             data_str,
         )
-    # --- fim NFSe ---
+# --- fim NFSe ---
+
 
 
     # 1) Localiza infNFe ou infCTe
@@ -297,21 +304,24 @@ def summarize_zipfile_resumo(zf: zipfile.ZipFile, own_set: set):
             continue
         if not chave:
             continue
+            
         if chave in seen_chaves:
             total_duplicados += 1
             continue
         seen_chaves.add(chave)
+        
         total_docs += 1
 
-        if modelo in ACCEPTED_MODELS_GLOBAL and chave not in seen_dfe:
-            seen_dfe.add(chave)
-            total_dfe += 1
-            if ano and mes:
-                cur = (ano, mes)
-                if (min_period is None) or (cur < min_period):
-                    min_period = cur
-                if (max_period is None) or (cur > max_period):
-                    max_period = cur
+        if modelo in ACCEPTED_MODELS_GLOBAL:
+            if chave not in seen_dfe:
+                seen_dfe.add(chave)
+                total_dfe += 1
+                if ano and mes:
+                    cur = (ano, mes)
+                    if (min_period is None) or (cur < min_period):
+                        min_period = cur
+                    if (max_period is None) or (cur > max_period):
+                        max_period = cur
         
         if (
             emit_cnpj
