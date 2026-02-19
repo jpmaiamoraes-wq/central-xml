@@ -1,10 +1,3 @@
-# ResumoXML.spec
-# Build onedir (COLLECT) incluindo pasta assets e dados necessários.
-# Use:
-#   pyinstaller ResumoXML.spec --clean
-# ou com paths customizados:
-#   pyinstaller ResumoXML.spec --clean --workpath .\build_new --distpath .\dist_new
-
 # -*- mode: python ; coding: utf-8 -*-
 
 import os
@@ -12,71 +5,61 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 
 block_cipher = None
 
+# -------- Configurações de Caminhos --------
+current_dir = os.getcwd()
+
 # -------- Pacotes: submódulos e dados --------
-hiddenimports = []
+hiddenimports = [
+    'docx',
+    'rarfile', 
+    'openpyxl',
+    'logic_nfse_split',
+    'logic_converter',
+    'logic_extrator',
+    'logic_resumo',
+    'logic_sped',
+    'utils',
+    'parsers.router',
+    'core.normalizer'
+]
+
 datas = []
 
 # dash_bootstrap_components
 hiddenimports += collect_submodules('dash_bootstrap_components')
 datas += collect_data_files('dash_bootstrap_components')
 
-# Motores Excel
-try:
-    hiddenimports += collect_submodules('xlsxwriter')
-    datas += collect_data_files('xlsxwriter')
-except Exception:
-    pass
+# --- ARQUIVOS DE DADOS E PASTAS (MUDANÇA AQUI) ---
 
-try:
-    hiddenimports += collect_submodules('openpyxl')
-    datas += collect_data_files('openpyxl')
-except Exception:
-    pass
+# 1. Arquivo Excel
+if os.path.exists('Cod.-de-servico-SP-x-Campinas.xlsx'):
+    datas.append(('Cod.-de-servico-SP-x-Campinas.xlsx', '.'))
 
-# --- NOSSAS NOVAS DEPENDÊNCIAS ---
-# Adiciona as bibliotecas que importamos dinamicamente
-# ATUALIZADO: Removemos 'py7zr'
-hiddenimports += ['rarfile', 'openpyxl','logic_nfse_split','parsers.router','core.normalizer',]
+# 2. Pastas de lógica/core (copiando como diretórios)
+for folder in ['core', 'parsers', 'schemas']:
+    if os.path.isdir(folder):
+        datas.append((folder, folder))
 
-# -------- Pasta local "assets" (logo, CSS, etc.) --------
+# 3. Pasta Assets
 if os.path.isdir('assets'):
-    try:
-        from PyInstaller.building.datastruct import Tree
-        datas += Tree('assets', prefix='assets').tolist()
-    except Exception:
-        for root, _, files in os.walk('assets'):
-            for f in files:
-                src = os.path.join(root, f)
-                rel = os.path.relpath(src, 'assets')
-                dst = os.path.join('assets', os.path.dirname(rel))
-                datas.append((src, dst))
+    datas.append(('assets', 'assets'))
 
-# --- NOSSO NOVO BINÁRIO (unrar.exe) ---
-# (Certifique-se que 'unrar.exe' está na mesma pasta que este .spec)
-if os.path.exists('unrar.exe'):
-    datas.append(('unrar.exe', '.'))
-else:
-    print("AVISO DE BUILD: 'unrar.exe' não encontrado. A Aba 1 falhará ao extrair .rar.")
-
-# --- NOSSO NOVO BINÁRIO (7z.exe) ---
-# ATUALIZAÇÃO: Adicionamos o 7z.exe
-# (Certifique-se que '7z.exe' está na mesma pasta que este .spec)
-if os.path.exists('7z.exe'):
-    datas.append(('7z.exe', '.'))
-else:
-    print("AVISO DE BUILD: '7z.exe' não encontrado. A Aba 1 falhará ao extrair .7z.")
-
+# 4. Binários extras (unrar e 7z)
+for binary in ['unrar.exe', '7z.exe']:
+    if os.path.exists(binary):
+        datas.append((binary, '.'))
+    else:
+        print(f"AVISO DE BUILD: '{binary}' não encontrado.")
 
 # -------- Script de entrada --------
-# --- MUDANÇA 1: Aponta para o script correto ---
 ENTRY_SCRIPT = 'app.py'
 
 a = Analysis(
     [ENTRY_SCRIPT],
-    pathex=[],
+    pathex=[current_dir], # Adiciona o diretório atual ao path de busca
     binaries=[],
-    datas=datas,                     # <-- MUDANÇA 2: Usa a lista 'datas' que construímos
-    hiddenimports=hiddenimports,     # <-- MUDANÇA 3: Usa a lista 'hiddenimports' que construímos
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -96,7 +79,8 @@ exe = EXE(
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
-    console=False,   # Mude para True se quiser ver os logs de 'print' no .exe
+    console=False, # Mude para True se precisar debugar erros de importação
+    icon=None      # Adicione o caminho do ícone aqui se tiver um .ico
 )
 
 coll = COLLECT(

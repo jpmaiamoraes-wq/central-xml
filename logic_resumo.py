@@ -64,12 +64,14 @@ def _find_first_local_resumo(root, names):
         nxt = []
         lname = name.lower()
         for el in cur:
+            if _localname_resumo(el.tag).lower() == lname:
+                nxt.append(el)
             for ch in el:
                 if _localname_resumo(ch.tag).lower() == lname:
                     nxt.append(ch)
         if not nxt:
             return None
-        cur = nxt
+        cur = [nxt[0]]
     return cur[0]
 
 
@@ -91,47 +93,8 @@ def _parse_fields_resumo(xml_bytes: bytes):
     except Exception:
         return None, None, None, None, (None, None), ""
 
-    # --- NFSe: tenta detectar antes de procurar infNFe/infCTe ---
-    
-    try:
-        xml_text = xml_bytes.decode("utf-8", errors="ignore")
-        nfse_obj = detect_and_parse_nfse(xml_text)
-    except Exception:
-        nfse_obj = None
-
-    if nfse_obj:
-        
-        numero = (nfse_obj.numero or "").strip()
-        verif = (nfse_obj.codigo_verificacao or "").strip()
-        prest = digits(nfse_obj.prestador_cnpjcpf or "")
-        dt_ref = nfse_obj.competencia or nfse_obj.data_emissao
-        ano = dt_ref.year if dt_ref else None
-        mes = dt_ref.month if dt_ref else None
-        data_str = dt_ref.isoformat() if dt_ref else ""
-        
-        if prest and numero and verif:
-            chave_nfse = f"NFSE|{prest}|{numero}|{verif}"
-        elif prest and numero:
-            chave_nfse = f"NFSE|{prest}|{numero}"
-        else:
-            chave_nfse = None
-
-        emit_cnpj = prest
-        dest_cnpj = digits(nfse_obj.tomador_cnpjcpf or "")
-
-        return (
-            emit_cnpj or None,
-            dest_cnpj or None,
-            "NFSE",
-            chave_nfse or None,
-            (ano, mes),
-            data_str,
-        )
-# --- fim NFSe ---
-
-
-
-    # 1) Localiza infNFe ou infCTe
+    # 1) Tenta localizar infNFe ou infCTe de forma flexível
+    # Isso cobre tanto o modelo completo <nfeProc> quanto o modelo apenas com <NFe>
     inf = (
         root.find(".//ns:infNFe", NS_RESUMO)
         or root.find(".//nfe:infNFe", NS_RESUMO)
@@ -142,7 +105,43 @@ def _parse_fields_resumo(xml_bytes: bytes):
         or _find_first_local_resumo(root, ["infCTe"])
     )
 
-    # Se não achou infNFe/infCTe, pode ser evento/inutilização
+    # 2) Se não achou NFe/CTe, tenta NFSe
+    if inf is None:    
+        try:
+            xml_text = xml_bytes.decode("utf-8", errors="ignore")
+            nfse_obj = detect_and_parse_nfse(xml_text)
+            if nfse_obj:
+                numero = (nfse_obj.numero or "").strip()
+                verif = (nfse_obj.codigo_verificacao or "").strip()
+                prest = digits(nfse_obj.prestador_cnpjcpf or "")
+                dt_ref = nfse_obj.competencia or nfse_obj.data_emissao
+                ano = dt_ref.year if dt_ref else None
+                mes = dt_ref.month if dt_ref else None
+                data_str = dt_ref.isoformat() if dt_ref else ""
+        
+                if prest and numero and verif:
+                    chave_nfse = f"NFSE|{prest}|{numero}|{verif}"
+                elif prest and numero:
+                    chave_nfse = f"NFSE|{prest}|{numero}"
+                else:
+                    chave_nfse = None
+
+                emit_cnpj = prest
+                dest_cnpj = digits(nfse_obj.tomador_cnpjcpf or "")
+                
+                return (
+                    emit_cnpj or None,
+                    dest_cnpj or None,
+                    "NFSE",
+                    chave_nfse or None,
+                    (ano, mes),
+                    data_str,
+                )
+        except Exception:
+            pass
+    # --- fim NFSe ---
+
+    # 3) Se não achou infNFe/infCTe nem NFSe, checa se é evento ou inutilização
     if inf is None:
         local_root_tag = _localname_resumo(root.tag).lower()
         if "evento" in local_root_tag:
@@ -151,7 +150,24 @@ def _parse_fields_resumo(xml_bytes: bytes):
             return None, None, "INUT", None, (None, None), ""
         return None, None, None, None, (None, None), ""
 
-    # 2) IDE + modelo
+    # 4) Extração da CHAVE (Crucial para o arquivo sem <protNFe>)
+    chave = ""
+    # Tenta primeiro pelo protocolo (presente em arquivos completos como o da SNR)
+    ch_node = (
+        root.find(".//ns:protNFe/ns:infProt/ns:chNFe", NS_RESUMO)
+        or root.find(".//nfe:protNFe/nfe:infProt/nfe:chNFe", NS_RESUMO)
+        or root.find(".//cte:protCTe/cte:infProt/cte:chCTe", NS_RESUMO)
+    )
+    if ch_node is not None and ch_node.text:
+        chave = ch_node.text.strip()
+    
+    # Fallback: Se não tem protocolo (caso da Radar), extrai do atributo 'Id' da tag inf
+    if not chave:
+        val_id = inf.get("Id") or ""
+        # Remove letras ("NFe", "CTe") e deixa apenas os 44 números
+        chave = re.sub(r"\D", "", val_id)
+        
+    # 5) IDE + modelo
     ide = (
         inf.find(".//ns:ide", NS_RESUMO)
         or inf.find(".//nfe:ide", NS_RESUMO)
@@ -553,10 +569,13 @@ def build_items_from_zip_resumo(zf: zipfile.ZipFile, own_set: set):
                 node = _find_first_local_resumo(prod, names_list)
                 return (node.text or "").strip() if node is not None and node.text else ""
 
+            cProd = gx("ns:cProd", ["cProd"])
             xProd = gx("ns:xProd", ["xProd"])
+            qCom  = gx("ns:qCom", ["qCom"])
             NCM = gx("ns:NCM", ["NCM"])
             uCom = gx("ns:uCom", ["uCom"])
             CFOP = gx("ns:CFOP", ["CFOP"])
+            Lote = gx("ns:rastro/ns:nLote",["nLote"])
 
             rows.append(
                 {
@@ -564,9 +583,12 @@ def build_items_from_zip_resumo(zf: zipfile.ZipFile, own_set: set):
                     "Modelo": modelo,
                     "Data": data_str,
                     "P/T": pt,
+                    "cProd": cProd,
                     "xProd": xProd,
+                    "qCom" : qCom,
                     "NCM": NCM,
                     "Unidade": uCom,
+                    "Lote" : Lote,
                     "CFOP_item": CFOP,
                     "Chave": chave,
                     "nItem": nItem,

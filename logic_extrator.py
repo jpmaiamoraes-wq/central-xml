@@ -1,11 +1,10 @@
-# logic_extrator.py
 import os
 import shutil
-import subprocess
 import tempfile
 import zipfile
+import py7zr  # Biblioteca nativa Python para 7z
+import io
 import xml.etree.ElementTree as ET
-
 from utils import (
     log_message,
     digits,
@@ -14,64 +13,109 @@ from utils import (
     CTE_NS_GLOBAL,
     ACCEPTED_MODELS_GLOBAL,
 )
-from logic_resumo import _find_first_local_resumo  # reaproveita helper da Aba 2
-
 
 def extract_7z(archive_path, destination_path):
-    """
-    Extrai um arquivo .7z usando o executável '7z' via subprocess.
-    """
+    """Extrai .7z de forma compatível com Linux/Cloud"""
     try:
-        cmd = ["7z", "x", archive_path, f"-o{destination_path}", "-y"]
-        processo = subprocess.run(
-            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
-        )
-        if processo.returncode != 0:
-            stderr_output = processo.stderr or "Sem saída de erro"
-            raise Exception(f"Erro do 7-Zip (código {processo.returncode}): {stderr_output}")
-    except FileNotFoundError:
-        raise FileNotFoundError(
-            "ERRO CRÍTICO: '7z' não encontrado. Adicione a pasta do 7-Zip ao PATH do Windows."
-        )
+        with py7zr.SevenZipFile(archive_path, mode='r') as archive:
+            archive.extractall(path=destination_path)
     except Exception as e:
-        raise e
-
+        raise Exception(f"Erro ao extrair 7z: {e}")
 
 def parse_xml_file_extrator(xml_file_path):
-    """
-    Lê um arquivo XML do disco e extrai os CNPJs relevantes e o modelo.
-    (Mesma lógica que você já tinha na Aba 1.) :contentReference[oaicite:1]{index=1}
-    """
-    # aqui você só copia o corpo da função original parse_xml_file_extrator,
-    # trocando chamadas para _digits -> digits, NS_MAP_NFE / NS_MAP_CTE etc.,
-    # ou importando essas constantes de um módulo específico se preferir.
-    ...
-    # (para não estourar resposta, não repliquei tudo,
-    # mas é literalmente o mesmo código que já está no arquivo, só movido.)
+    """Analisa o XML para identificar Emitente, Destinatário e Modelo"""
+    try:
+        tree = ET.parse(xml_file_path)
+        root = tree.getroot()
+        
+        # Namespaces
+        ns = {'nfe': NFE_NS_GLOBAL, 'cte': CTE_NS_GLOBAL}
+        
+        # Tenta achar infNFe ou infCTe
+        inf = root.find(".//nfe:infNFe", ns) or root.find(".//cte:infCTe", ns)
+        
+        if inf is None:
+            return None, None, None
 
+        emit_cnpj = digits(inf.findtext(".//nfe:emit/nfe:CNPJ", namespaces=ns) or 
+                           inf.findtext(".//cte:emit/cte:CNPJ", namespaces=ns) or "")
+        
+        dest_cnpj = digits(inf.findtext(".//nfe:dest/nfe:CNPJ", namespaces=ns) or 
+                           inf.findtext(".//cte:dest/cte:CNPJ", namespaces=ns) or "")
+        
+        modelo = inf.findtext(".//nfe:ide/nfe:mod", namespaces=ns) or \
+                 inf.findtext(".//cte:ide/cte:mod", namespaces=ns)
+
+        return emit_cnpj, dest_cnpj, modelo
+    except:
+        return None, None, None
 
 def move_xml_para_destino_extrator(caminho_origem, nome_arquivo, pasta_destino, log_list):
-    """
-    Copia o XML para a pasta de destino, tratando duplicados.
-    (Mesma lógica da função original.)
-    """
+    """Copia o XML tratando duplicados de nome"""
     try:
         nome_base, extensao = os.path.splitext(nome_arquivo)
         caminho_destino_final = os.path.join(pasta_destino, nome_arquivo)
         contador = 1
-
         while os.path.exists(caminho_destino_final):
-            novo_nome = f"{nome_base}_{contador}{extensao}"
-            caminho_destino_final = os.path.join(pasta_destino, novo_nome)
+            caminho_destino_final = os.path.join(pasta_destino, f"{nome_base}_{contador}{extensao}")
             contador += 1
-
         shutil.copy2(caminho_origem, caminho_destino_final)
     except Exception as e:
-        log_list = log_message(
-            log_list, f"AVISO: Falha ao copiar XML '{nome_arquivo}': {e}."
-        )
+        log_list = log_message(log_list, f"AVISO: Falha ao copiar {nome_arquivo}: {e}")
     return log_list
 
+def processar_extracao_cloud(uploaded_file, modo, cnpjs_proprios):
+    """
+    Função principal chamada pelo app.py no Streamlit.
+    """
+    logs = []
+    own_set = {digits(c) for c in (cnpjs_proprios or [])}
+    output_zip_buffer = io.BytesIO()
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        # 1. Salva o arquivo enviado
+        input_path = os.path.join(tmp_dir, "entrada.zip")
+        with open(input_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        # 2. Pastas de trabalho
+        pasta_extracao = os.path.join(tmp_dir, "extraido")
+        pastas_destino = {
+            'proprios': os.path.join(tmp_dir, "Proprios"),
+            'terceiros': os.path.join(tmp_dir, "Terceiros"),
+            'outros': os.path.join(tmp_dir, "Outros")
+        }
+        for p in pastas_destino.values(): os.makedirs(p)
+
+        # 3. Configura extratores
+        extractors_map = {
+            ".zip": lambda path, dest: zipfile.ZipFile(path, 'r').extractall(dest),
+            ".7z": lambda path, dest: extract_7z(path, dest),
+        }
+        supported = [".zip", ".7z"]
+
+        # 4. Executa a lógica
+        with zipfile.ZipFile(input_path, 'r') as z:
+            z.extractall(pasta_extracao)
+
+        if modo == 'Separar pelo Emitente (Classificação)':
+            logs, total = extrair_e_classificar_extrator(
+                pasta_extracao, pastas_destino, own_set, logs, extractors_map, supported
+            )
+        else:
+            # Modo Juntar Tudo
+            logs, total = extrair_xmls_recursivamente(
+                pasta_extracao, pastas_destino['outros'], logs, extractors_map, supported
+            )
+
+        # 5. Cria o ZIP de retorno
+        with zipfile.ZipFile(output_zip_buffer, "w") as zf:
+            for cat, p in pastas_destino.items():
+                for root, _, files in os.walk(p):
+                    for f in files:
+                        zf.write(os.path.join(root, f), arcname=os.path.join(cat, f))
+
+    return output_zip_buffer.getvalue(), logs
 
 def extrair_e_classificar_extrator(caminho_pasta, pastas_destino, own_set, log_list, extractors_map, supported_archives_list):
     """
