@@ -179,31 +179,59 @@ if check_password():
                 else:
                     st.error("Não foi possível encontrar múltiplas notas para desmembrar. Verifique se o arquivo XML segue o padrão de lote ABRASF.")
 
-    # --- ABA 5: CONVERSOR ---
+    # --- ABA 5: CONVERSOR (Versão com suporte a ZIP) ---
     with tab5:
         st.header("Conversor NFSe (TXT/CSV → XML)")
         col_ref1, col_ref2 = st.columns(2)
         with col_ref1:
             ref_file = st.file_uploader("1. Planilha de Referência (De-Para)", type=["xlsx", "xls"])
         with col_ref2:
-            txt_to_convert = st.file_uploader("2. Arquivo para converter", type=["txt", "csv", "zip"])
+            txt_to_convert = st.file_uploader("2. Arquivo para converter (TXT, CSV ou ZIP)", type=["txt", "csv", "zip"])
 
         if st.button("🛠️ Converter para XML"):
             if ref_file and txt_to_convert:
                 with tempfile.TemporaryDirectory() as tmp_dir:
-                    in_path = os.path.join(tmp_dir, txt_to_convert.name)
                     ref_path = os.path.join(tmp_dir, ref_file.name)
+                    with open(ref_path, "wb") as f: f.write(ref_file.getbuffer())
+                
                     out_dir = os.path.join(tmp_dir, "output_xmls")
                     os.makedirs(out_dir)
-                    with open(in_path, "wb") as f: f.write(txt_to_convert.getbuffer())
-                    with open(ref_path, "wb") as f: f.write(ref_file.getbuffer())
-                    with st.spinner("Convertendo..."):
-                        res_msg = converter_txt_para_xml_lote(in_path, out_dir, path_ref_custom=ref_path)
-                        st.success(res_msg)
-                        zip_conv = io.BytesIO()
-                        with zipfile.ZipFile(zip_conv, "w") as zf:
-                            for root, _, files in os.walk(out_dir):
-                                for f in files: zf.write(os.path.join(root, f), arcname=f)
-                        st.download_button("📥 Baixar XMLs Gerados", zip_conv.getvalue(), "conversao_nfse.zip")
+
+                    files_to_process = []
+                
+                    # Lógica para tratar ZIP na Aba 5
+                    if txt_to_convert.name.lower().endswith(".zip"):
+                        with zipfile.ZipFile(io.BytesIO(txt_to_convert.read())) as z:
+                            for filename in z.namelist():
+                                if filename.lower().endswith((".txt", ".csv")):
+                                    # Extrai para a pasta temporária para a logic_converter ler o path
+                                    p = z.extract(filename, tmp_dir)
+                                    files_to_process.append(p)
+                    else:
+                        # Arquivo único
+                        in_path = os.path.join(tmp_dir, txt_to_convert.name)
+                        with open(in_path, "wb") as f: f.write(txt_to_convert.getbuffer())
+                        files_to_process.append(in_path)
+
+                    if not files_to_process:
+                        st.error("Nenhum arquivo TXT ou CSV encontrado para converter.")
+                    else:
+                        with st.spinner(f"Convertendo {len(files_to_process)} arquivo(s)..."):
+                            mensagens = []
+                            for f_path in files_to_process:
+                                res_msg = converter_txt_para_xml_lote(f_path, out_dir, path_ref_custom=ref_path)
+                                mensagens.append(f"{os.path.basename(f_path)}: {res_msg}")
+                        
+                            st.success("Processamento concluído!")
+                            with st.expander("Detalhes da conversão"):
+                                for m in mensagens: st.write(m)
+
+                            # Zipar o resultado para download
+                            zip_conv = io.BytesIO()
+                            with zipfile.ZipFile(zip_conv, "w") as zf:
+                                for root, _, files in os.walk(out_dir):
+                                    for f in files: zf.write(os.path.join(root, f), arcname=f)
+                        
+                            st.download_button("📥 Baixar XMLs Gerados", zip_conv.getvalue(), "conversao_nfse.zip")
             else:
                 st.error("É necessário subir ambos os arquivos (Referência e Dados).")
