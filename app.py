@@ -14,7 +14,7 @@ from logic_nfse_split import split_nfse_abrasf, make_zip_bytes
 from logic_converter import converter_txt_para_xml_lote
 
 # Configuração da Página
-st.set_page_config(page_title="Central de Ferramentas XML", layout="wide", page_icon="📂")
+st.set_page_config(page_title="Central de Ferramentas XML", layout="wide", page_icon="🧟")
 
 # --- CSS Customizado ---
 st.markdown("""
