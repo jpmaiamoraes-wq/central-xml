@@ -150,18 +150,34 @@ if check_password():
                     if not df_c100.empty: df_c100.to_excel(writer, sheet_name='Itens_C100_C170', index=False)
                 st.download_button("📥 Baixar SPED Convertido (Excel)", output_sped.getvalue(), "sped_analise.xlsx")
 
-    # --- ABA 4: SEPARAR NFSE ---
+# --- ABA 4: SEPARAR NFSE (Versão Corrigida) ---
     with tab4:
         st.header("Desmembrar Lote NFSe (ABRASF)")
         nfse_file = st.file_uploader("Suba o XML ou ZIP com notas em lote", type=["xml", "zip"])
+    
         if st.button("✂️ Desmembrar Notas"):
             if nfse_file:
-                partes = split_nfse_abrasf(nfse_file.read())
-                if partes:
-                    st.success(f"{len(partes)} notas individuais geradas.")
-                    st.download_button("📥 Baixar ZIP de Notas", make_zip_bytes(partes), "nfse_desmembradas.zip")
+                todas_partes = []
+            
+                # Se for ZIP, vamos percorrer os arquivos dentro dele
+                if nfse_file.name.lower().endswith(".zip"):
+                    with zipfile.ZipFile(io.BytesIO(nfse_file.read())) as z:
+                        for filename in z.namelist():
+                            if filename.lower().endswith(".xml"):
+                                with z.open(filename) as f:
+                                    partes = split_nfse_abrasf(f.read(), prefix=f"sep_{filename}_")
+                                    todas_partes.extend(partes)
+            
+                # Se for apenas um XML direto
                 else:
-                    st.error("Não foi possível encontrar múltiplas notas para desmembrar neste arquivo.")
+                    todas_partes = split_nfse_abrasf(nfse_file.read())
+
+                # Resultado final
+                if todas_partes:
+                    st.success(f"Total de {len(todas_partes)} notas individuais geradas.")
+                    st.download_button("📥 Baixar ZIP de Notas", make_zip_bytes(todas_partes), "nfse_desmembradas.zip")
+                else:
+                    st.error("Não foi possível encontrar múltiplas notas para desmembrar. Verifique se o arquivo XML segue o padrão de lote ABRASF.")
 
     # --- ABA 5: CONVERSOR ---
     with tab5:
