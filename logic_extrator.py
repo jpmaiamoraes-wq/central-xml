@@ -119,7 +119,8 @@ def processar_extracao_cloud(uploaded_file, modo, cnpjs_proprios):
 
 def extrair_e_classificar_extrator(caminho_pasta, pastas_destino, own_set, log_list, extractors_map, supported_archives_list):
     """
-    Varre 'caminho_pasta', extrai arquivos aninhados E classifica/move XMLs. (Usado pela Aba 1)
+    Varre 'caminho_pasta', extrai arquivos aninhados E classifica/move XMLs.
+    Arquivos que não são XML ou compactados suportados vão para 'Outros'.
     """
     try:
         itens = os.listdir(caminho_pasta)
@@ -127,25 +128,25 @@ def extrair_e_classificar_extrator(caminho_pasta, pastas_destino, own_set, log_l
         log_list = log_message(log_list, f"ERRO: Falha ao ler pasta {caminho_pasta}: {e}")
         return log_list, 0
     
-    xmls_movidos = 0
+    arquivos_movidos = 0
 
     for item_nome in itens:
         item_nome_sanitizado = item_nome.rstrip(' \\/')
         item_caminho_completo = os.path.join(caminho_pasta, item_nome_sanitizado)
         
         if os.path.isdir(item_caminho_completo):
-            # Se for uma pasta, entra nela
-            log_list, novos_xmls = extrair_e_classificar_extrator(
+            # Se for uma pasta, entra nela recursivamente
+            log_list, novos_movidos = extrair_e_classificar_extrator(
                 item_caminho_completo, pastas_destino, own_set, log_list, 
                 extractors_map, supported_archives_list
             )
-            xmls_movidos += novos_xmls
+            arquivos_movidos += novos_movidos
         
         elif os.path.isfile(item_caminho_completo):
             nome_base, extensao = os.path.splitext(item_nome_sanitizado)
             extensao = extensao.strip().lower()
 
-            # 1. Se for um ARQUIVO COMPACTADO (zip, rar, 7z)
+            # 1. Se for um ARQUIVO COMPACTADO SUPORTADO (.zip, .7z)
             if extensao in supported_archives_list:
                 log_list = log_message(log_list, f"Extraindo arquivo: {item_nome_sanitizado}...")
                 pasta_temp_aninhada = tempfile.mkdtemp(prefix=f"ext_{nome_base}_")
@@ -154,28 +155,26 @@ def extrair_e_classificar_extrator(caminho_pasta, pastas_destino, own_set, log_l
                     extract_func = extractors_map[extensao]
                     extract_func(item_caminho_completo, pasta_temp_aninhada)
                     
-                    log_list, novos_xmls = extrair_e_classificar_extrator(
+                    log_list, novos_movidos = extrair_e_classificar_extrator(
                         pasta_temp_aninhada, pastas_destino, own_set, log_list,
                         extractors_map, supported_archives_list
                     )
-                    xmls_movidos += novos_xmls
+                    arquivos_movidos += novos_movidos
                     
                 except Exception as e:
-                    log_list = log_message(log_list, f"AVISO: Falha ao extrair '{item_nome_sanitizado}': {e}. Ignorando.")
+                    log_list = log_message(log_list, f"AVISO: Falha ao extrair '{item_nome_sanitizado}': {e}. Movendo original para 'Outros'.")
+                    # Se falhar a extração, move o arquivo fechado para outros
+                    log_list = move_xml_para_destino_extrator(item_caminho_completo, item_nome_sanitizado, pastas_destino['outros'], log_list)
                 finally:
                     try:
                         shutil.rmtree(pasta_temp_aninhada)
                     except Exception:
                         pass
             
-            # 2. Se for um ARQUIVO XML
+            # 2. Se for um ARQUIVO XML (Faz a classificação por CNPJ)
             elif extensao == '.xml':
-                # Analisa o XML
                 emit_cnpj, dest_cnpj, modelo = parse_xml_file_extrator(item_caminho_completo)
                 
-                pasta_alvo = None
-                
-                # Classifica
                 if emit_cnpj and emit_cnpj in own_set:
                     pasta_alvo = pastas_destino['proprios']
                 elif dest_cnpj and dest_cnpj in own_set:
@@ -183,12 +182,16 @@ def extrair_e_classificar_extrator(caminho_pasta, pastas_destino, own_set, log_l
                 else:
                     pasta_alvo = pastas_destino['outros']
 
-                # Move o arquivo
                 log_list = move_xml_para_destino_extrator(item_caminho_completo, item_nome_sanitizado, pasta_alvo, log_list)
-                xmls_movidos += 1
+                arquivos_movidos += 1
 
-    return log_list, xmls_movidos
+            # 3. QUALQUER OUTRO ARQUIVO (PDF, RAR, TXT, etc.)
+            else:
+                log_list = log_message(log_list, f"Arquivo não-XML detectado ({extensao}). Movendo para 'Outros'.")
+                log_list = move_xml_para_destino_extrator(item_caminho_completo, item_nome_sanitizado, pastas_destino['outros'], log_list)
+                arquivos_movidos += 1
 
+    return log_list, arquivos_movidos
 
 
 def extrair_xmls_recursivamente(
