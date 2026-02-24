@@ -2,55 +2,63 @@ import io
 import zipfile
 import xml.etree.ElementTree as ET
 
-def split_nfse_abrasf(xml_bytes: bytes, prefix="nfse_"):
+def split_nfse_universal(xml_bytes: bytes, prefix="nfse_"):
     try:
-        root = ET.fromstring(xml_bytes)
+        # Tenta decodificar ignorando erros de encoding comuns em XMLs zumbi
+        xml_text = xml_bytes.decode('utf-8', errors='ignore')
+        root = ET.fromstring(xml_text)
     except Exception as e:
         print(f"Erro ao ler XML: {e}")
         return []
 
     saida = []
-    numeros_processados = set() # Controle para evitar duplicados no mesmo arquivo
+    numeros_processados = set()
 
     def get_local_tag(tag):
         return tag.split('}')[-1]
 
-    def find_blind(element, tag_target):
+    def find_blind_text(element, tags_alvo: list):
+        """Busca o texto de qualquer uma das tags na lista fornecida"""
         for child in element.iter():
-            if get_local_tag(child.tag) == tag_target:
-                return child
+            if get_local_tag(child.tag) in tags_alvo:
+                return child.text.strip() if child.text else None
         return None
 
     # --- LÓGICA DE IDENTIFICAÇÃO DE BLOCOS ---
-    # Buscamos Nfse ou CompNfse
-    candidatos = [elem for elem in root.iter() if get_local_tag(elem.tag) in ['CompNfse', 'Nfse']]
+    # Adicionamos 'nfdok' (Exemplo 1) e 'Reg20Item' (Exemplo 2)
+    tags_bloco_nota = ['CompNfse', 'Nfse', 'nfdok', 'Reg20Item']
     
-    # Filtramos para pegar apenas os blocos que possuem Numero e que não são "filhos" de outro bloco já aceito
+    candidatos = [elem for elem in root.iter() if get_local_tag(elem.tag) in tags_bloco_nota]
+    
+    # Possíveis nomes para a tag de Número e CNPJ dependendo do layout
+    tags_numero = ['Numero', 'NumeroNota', 'NumNf']
+    tags_cnpj = ['Cnpj', 'ClienteCNPJCPF', 'CpfCnpjPre']
+
     blocos_validos = []
     for cand in candidatos:
-        num_elem = find_blind(cand, 'Numero')
-        if num_elem is not None and num_elem.text:
-            num_nota = num_elem.text.strip()
-            
-            # Se já processamos esse número de nota NESTE arquivo, ignoramos os blocos internos
+        num_nota = find_blind_text(cand, tags_numero)
+        
+        if num_nota:
+            # Se já processamos esse número, evitamos duplicar (caso de tags aninhadas)
             if num_nota not in numeros_processados:
                 blocos_validos.append(cand)
                 numeros_processados.add(num_nota)
 
-    # Se só houver 1 nota no arquivo inteiro, retornamos vazio para não desmembrar (mantém original)
+    # Se só houver 1 nota no arquivo inteiro, retornamos vazio (mantém original)
     if len(blocos_validos) <= 1:
         return []
 
-    for idx, nota in enumerate(blocos_validos):
-        num_elem = find_blind(nota, 'Numero')
-        numero = num_elem.text.strip()
+    for nota in blocos_validos:
+        numero = find_blind_text(nota, tags_numero)
+        cnpj = find_blind_text(nota, tags_cnpj) or "sem_cnpj"
         
-        cnpj_elem = find_blind(nota, 'Cnpj')
-        cnpj = cnpj_elem.text.strip() if cnpj_elem is not None and cnpj_elem.text else "sem_cnpj"
+        # Limpar caracteres especiais do CNPJ para o nome do arquivo
+        cnpj_clean = "".join(filter(str.isalnum, cnpj))
 
-        filename = f"{prefix}{cnpj}_{numero}.xml"
+        filename = f"{prefix}{cnpj_clean}_{numero}.xml"
         
         try:
+            # Geramos o XML individual para cada bloco identificado
             xml_out = ET.tostring(nota, encoding="utf-8", xml_declaration=True)
             saida.append((filename, xml_out))
         except Exception as e:
