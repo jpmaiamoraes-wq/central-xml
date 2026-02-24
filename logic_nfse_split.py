@@ -2,7 +2,7 @@ import io
 import zipfile
 import xml.etree.ElementTree as ET
 
-def split_nfse_universal(xml_bytes: bytes, prefix="nfse_"):
+def split_nfse_abrasf(xml_bytes: bytes, prefix="nfse_"):
     try:
         # Tenta decodificar ignorando erros de encoding comuns em XMLs zumbi
         xml_text = xml_bytes.decode('utf-8', errors='ignore')
