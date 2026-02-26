@@ -104,9 +104,9 @@ def converter_txt_para_xml_lote(input_path, output_dir, path_ref_custom=None):
                 continue
                 
             # --- FILTRO TEMPORÁRIO: APENAS CPF (11 dígitos) ---
-            prestador_doc = limpar_doc(row.get("CPF/CNPJ do Prestador", ""))
-            if len(prestador_doc) > 11:
-                continue 
+            #prestador_doc = limpar_doc(row.get("CPF/CNPJ do Prestador", ""))
+            #if len(prestador_doc) > 11:
+                #continue 
             # --------------------------------------------------
             
             data_cancelamento = str(row.get("Data de Cancelamento", "")).strip()
