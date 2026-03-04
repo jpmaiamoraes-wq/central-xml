@@ -146,19 +146,46 @@ if check_password():
             
             own_set = set(st.session_state.cnpjs)
             with zipfile.ZipFile(zip_resumo, 'r') as zf:
+                # Chamada da lógica (agora retorna os totais simplificados e o breakdown detalhado)
                 res = summarize_zipfile_resumo(zf, own_set)
-                rows, breakdown, total_docs, warns, total_xmls = res[0], res[1], res[2], res[3], res[4]
-                st.success(f"Análise concluída: {total_docs} documentos DF-e identificados.")
-                st.dataframe(pd.DataFrame(rows), use_container_width=True)
+                
+                # Desempacotando todos os retornos conforme logic_resumo.py
+                rows, breakdown, total_docs, warns, total_xmls, total_out, total_evt, total_dup, total_inter, min_p, max_p = res
+
+                st.subheader("📊 Totais por CNPJ")
+                st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+                # --- LÓGICA DO "POP-UP" DE DETALHES ---
+                st.write("---")
+                st.subheader("🔍 Detalhes por Entidade")
+                
+                # Criamos colunas para os popovers de cada CNPJ
+                for cnpj_mask in breakdown.keys():
+                    with st.popover(f"Ver detalhes: {cnpj_mask}"):
+                        st.markdown(f"### Detalhamento: {cnpj_mask}")
+                        col_p, col_t = st.columns(2)
+                        
+                        with col_p:
+                            st.write("**Próprios (P):**")
+                            df_p = pd.DataFrame([breakdown[cnpj_mask]["P"]]).T
+                            df_p.columns = ["Quantidade"]
+                            st.table(df_p[df_p["Quantidade"] > 0]) # Mostra apenas o que tiver > 0
+                            
+                        with col_t:
+                            st.write("**Terceiros (T):**")
+                            df_t = pd.DataFrame([breakdown[cnpj_mask]["T"]]).T
+                            df_t.columns = ["Quantidade"]
+                            st.table(df_t[df_t["Quantidade"] > 0])
+
+                # --- BOTOES DE DOWNLOAD (Permanecem abaixo) ---
+                st.write("---")
                 col_res1, col_res2 = st.columns(2)
                 with col_res1:
                     detalhe = build_detail_from_zip_resumo(zf, own_set)
-                    df_det = pd.DataFrame(detalhe)
-                    st.download_button("📊 Baixar Detalhe (Excel)", df_det.to_csv(index=False).encode('utf-8'), "detalhe_analise.csv")
+                    st.download_button("📊 Baixar Detalhe Agregado (CSV)", pd.DataFrame(detalhe).to_csv(index=False).encode('utf-8'), "detalhe_analise.csv")
                 with col_res2:
                     itens = build_items_from_zip_resumo(zf, own_set)
-                    st.download_button("📦 Baixar Itens (CSV)", pd.DataFrame(itens).to_csv(index=False).encode('utf-8'), "itens_extracao.csv")
-
+                    st.download_button("📦 Baixar Planilha de Itens (CSV)", pd.DataFrame(itens).to_csv(index=False).encode('utf-8'), "itens_extracao.csv")
     # --- ABA 3: SPED ---
     with tab3:
         st.header("Análise de SPED Fiscal")
