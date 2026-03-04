@@ -373,18 +373,9 @@ def summarize_zipfile_resumo(zf: zipfile.ZipFile, own_set: set):
     rows = [
         {
             "CNPJ": _mask_cnpj(cnpj),
-            "QTD": v["QTD"],
-            "QTDETERC": v["QTDETERC"],
-            "P(55)": v["P"]["55"],
-            "P(57)": v["P"]["57"],
-            "P(65)": v["P"]["65"],
-            "P(NFSE)": v["P"]["NFSE"],
-            "P(OUT)": v["P"]["OUT"],
-            "T(55)": v["T"]["55"],
-            "T(57)": v["T"]["57"],
-            "T(65)": v["T"]["65"],
-            "T(NFSE)": v["T"]["NFSE"],
-            "T(OUT)": v["T"]["OUT"],
+            "XMLs Próprios (P)": v["QTD"],
+            "XMLs Terceiros (T)": v["QTDETERC"],
+            "Total Geral": v["QTD"] + v["QTDETERC"]
         }
         for cnpj, v in counters.items()
     ]
