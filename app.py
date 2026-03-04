@@ -116,9 +116,9 @@ if check_password():
                 with st.spinner("Processando arquivos e aplicando filtros..."):
                     # Chamada atualizada com os novos argumentos
                     zip_bytes, logs = processar_extracao_cloud(
-                        uploaded_zip, 
-                        modo_ext, 
-                        st.session_state.cnpjs,
+                        uploaded_file=uploaded_zip, 
+                        modo=modo_ext, 
+                        cnpjs_proprios=st.session_state.cnpjs,
                         data_ini=filtros["data_ini"],
                         data_fim=filtros["data_fim"],
                         cfops_filtro=filtros["cfops"]
