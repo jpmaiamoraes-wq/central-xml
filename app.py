@@ -86,30 +86,55 @@ if check_password():
     # --- ABA 1: EXTRATOR ---
     with tab1:
         st.header("Extrator e Classificador de XML")
-        st.info("Extrai arquivos (.zip, .7z) e separa em pastas: Próprios, Terceiros e Outros.")
+        st.info("Extrai arquivos (.zip, .7z) e separa em pastas: Próprios, Terceiros, Outros e Diversos.")
         
         uploaded_zip = st.file_uploader("Suba o arquivo compactado de origem", type=["zip", "7z"])
         modo_ext = st.radio("Modo de Processamento", ["Juntar Tudo", "Separar pelo Emitente (Classificação)"])
         
+        # --- NOVOS CAMPOS DE FILTRO (Aparecem apenas na Classificação) ---
+        filtros = {"data_ini": None, "data_fim": None, "cfops": None}
+        
+        if modo_ext == "Separar pelo Emitente (Classificação)":
+            with st.expander("🔍 Filtros de Auditoria (Opcional)", expanded=True):
+                col_f1, col_f2 = st.columns(2)
+                with col_f1:
+                    filtros["data_ini"] = st.date_input("Data Inicial", value=None, help="Filtrar notas emitidas a partir desta data")
+                with col_f2:
+                    filtros["data_fim"] = st.date_input("Data Final", value=None, help="Filtrar notas emitidas até esta data")
+                
+                cfop_raw = st.text_input("Filtrar CFOPs específicos", placeholder="Ex: 5102, 6102, 5405")
+                if cfop_raw:
+                    # Transforma a string "5102, 6102" em uma lista ['5102', '6102']
+                    filtros["cfops"] = [c.strip() for c in cfop_raw.split(",") if c.strip()]
+
         if st.button("🚀 Iniciar Extração"):
             if not uploaded_zip:
                 st.error("Selecione um arquivo primeiro.")
             elif modo_ext == "Separar pelo Emitente (Classificação)" and not st.session_state.cnpjs:
                 st.error("Para classificar, adicione pelo menos um CNPJ no topo.")
             else:
-                with st.spinner("Processando arquivos..."):
-                    zip_bytes, logs = processar_extracao_cloud(uploaded_zip, modo_ext, st.session_state.cnpjs)
+                with st.spinner("Processando arquivos e aplicando filtros..."):
+                    # Chamada atualizada com os novos argumentos
+                    zip_bytes, logs = processar_extracao_cloud(
+                        uploaded_zip, 
+                        modo_ext, 
+                        st.session_state.cnpjs,
+                        data_ini=filtros["data_ini"],
+                        data_fim=filtros["data_fim"],
+                        cfops_filtro=filtros["cfops"]
+                    )
+                    
                     st.success(f"Processamento concluído!")
                     with st.expander("Ver Logs do Processamento"):
                         for log in logs:
                             st.text(log)
+                            
                     st.download_button(
                         label="📥 Baixar XMLs Organizados (ZIP)",
                         data=zip_bytes,
                         file_name="XMLs_Organizados.zip",
                         mime="application/zip"
                     )
-
     # --- ABA 2: RESUMO ---
     with tab2:
         st.header("Resumo e Análise de Itens")
