@@ -2,14 +2,14 @@ import io
 import zipfile
 import xml.etree.ElementTree as ET
 
-def split_nfse_abrasf(xml_bytes: bytes, prefix="nfse_"):
+def split_nfse_abrasf(xml_bytes: bytes, filename_original="nota.xml", prefix="sep_"):
     try:
         # Tenta decodificar ignorando erros de encoding comuns em XMLs zumbi
         xml_text = xml_bytes.decode('utf-8', errors='ignore')
         root = ET.fromstring(xml_text)
-    except Exception as e:
-        print(f"Erro ao ler XML: {e}")
-        return []
+    except Exception:
+        # Se não for um XML válido, retorna o arquivo original como está
+        return [(filename_original, xml_bytes)]
 
     saida = []
     numeros_processados = set()
@@ -46,7 +46,7 @@ def split_nfse_abrasf(xml_bytes: bytes, prefix="nfse_"):
 
     # Se só houver 1 nota no arquivo inteiro, retornamos vazio (mantém original)
     if len(blocos_validos) <= 1:
-        return []
+        return [(filename_original, xml_bytes)]
 
     for nota in blocos_validos:
         numero = find_blind_text(nota, tags_numero)
