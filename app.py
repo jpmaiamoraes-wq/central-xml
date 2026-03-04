@@ -202,34 +202,47 @@ if check_password():
                     if not df_c100.empty: df_c100.to_excel(writer, sheet_name='Itens_C100_C170', index=False)
                 st.download_button("📥 Baixar SPED Convertido (Excel)", output_sped.getvalue(), "sped_analise.xlsx")
 
-# --- ABA 4: SEPARAR NFSE (Versão Corrigida) ---
+# --- ABA 4: SEPARAR NFSE ---
     with tab4:
         st.header("Desmembrar Lote NFSe (ABRASF)")
-        nfse_file = st.file_uploader("Suba o XML ou ZIP com notas em lote", type=["xml", "zip"])
+        st.info("Suba um XML de lote ou um ZIP. O sistema desmembrará os lotes e manterá os arquivos individuais e outros documentos no ZIP final.")
+        nfse_file = st.file_uploader("Suba o XML ou ZIP", type=["xml", "zip"])
     
         if st.button("✂️ Desmembrar Notas"):
             if nfse_file:
                 todas_partes = []
+                file_content = nfse_file.read()
             
-                # Se for ZIP, vamos percorrer os arquivos dentro dele
+                # CASO 1: O usuário subiu um ZIP
                 if nfse_file.name.lower().endswith(".zip"):
-                    with zipfile.ZipFile(io.BytesIO(nfse_file.read())) as z:
+                    with zipfile.ZipFile(io.BytesIO(file_content)) as z:
                         for filename in z.namelist():
-                            if filename.lower().endswith(".xml"):
-                                with z.open(filename) as f:
-                                    partes = split_nfse_abrasf(f.read(), prefix=f"sep_{filename}_")
+                            if filename.startswith("__MACOSX") or filename.endswith("/"): 
+                                continue
+                                
+                            with z.open(filename) as f:
+                                content = f.read()
+                                if filename.lower().endswith(".xml"):
+                                    # Tenta desmembrar; se tiver só uma ou não for lote, traz a original
+                                    partes = split_nfse_abrasf(content, filename_original=filename)
                                     todas_partes.extend(partes)
+                                else:
+                                    # Se for PDF ou outro formato, mantém no ZIP final
+                                    todas_partes.append((filename, content))
             
-                # Se for apenas um XML direto
+                # CASO 2: O usuário subiu um XML único
                 else:
-                    todas_partes = split_nfse_abrasf(nfse_file.read())
+                    partes = split_nfse_abrasf(file_content, filename_original=nfse_file.name)
+                    # Se partes retornar vazio ou a própria nota, garantimos que ela vá para o ZIP
+                    todas_partes.extend(partes if partes else [(nfse_file.name, file_content)])
 
-                # Resultado final
                 if todas_partes:
-                    st.success(f"Total de {len(todas_partes)} notas individuais geradas.")
-                    st.download_button("📥 Baixar ZIP de Notas", make_zip_bytes(todas_partes), "nfse_desmembradas.zip")
-                else:
-                    st.error("Não foi possível encontrar múltiplas notas para desmembrar. Verifique se o arquivo XML segue o padrão de lote ABRASF.")
+                    st.success(f"Processamento concluído. {len(todas_partes)} arquivos gerados/mantidos.")
+                    st.download_button(
+                        "📥 Baixar Arquivos (ZIP)", 
+                        make_zip_bytes(todas_partes), 
+                        "nfse_processadas.zip"
+                    )
 
     # --- ABA 5: CONVERSOR (Versão com suporte a ZIP) ---
     with tab5:
