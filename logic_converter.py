@@ -100,15 +100,8 @@ def converter_txt_para_xml_lote(input_path, output_dir, path_ref_custom=None):
             # Limpeza de nomes de colunas para evitar erros de espaços extras no CSV/TXT
             row = {str(k).strip(): v for k, v in row.items()}
 
-            possiveis_nomes_nf = ["Numero da nota", "Nº NFS-e", "Número da Nota", "NFS-e", "Numero"]
-            nf_num = next((row.get(nome) for nome in possiveis_nomes_nf if row.get(nome)), None)
-
-            if not nf_num or row.get("Tipo de Registro") == "Total":
+            if row.get("Tipo de Registro") == "Total" or not row.get("Nº NFS-e"):
                 continue
-            
-            data_cancelamento = str(row.get("Data de Cancelamento", "")).strip()
-            if data_cancelamento and data_cancelamento.lower() != "nan":
-                continue 
                 
             # --- FILTRO TEMPORÁRIO: APENAS CPF (11 dígitos) ---
             #prestador_doc = limpar_doc(row.get("CPF/CNPJ do Prestador", ""))
@@ -116,6 +109,11 @@ def converter_txt_para_xml_lote(input_path, output_dir, path_ref_custom=None):
                 #continue 
             # --------------------------------------------------
             
+            data_cancelamento = str(row.get("Data de Cancelamento", "")).strip()
+            if data_cancelamento and data_cancelamento.lower() != "nan":
+                continue 
+            
+            nf_num = row.get("Nº NFS-e", "")
             prestador_doc = limpar_doc(row.get("CPF/CNPJ do Prestador", ""))
             nome_tomador = str(row.get("Razão Social do Tomador", "")).strip()
 
