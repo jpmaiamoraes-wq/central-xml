@@ -4,11 +4,17 @@ import xml.etree.ElementTree as ET
 
 def split_nfse_abrasf(xml_bytes: bytes, filename_original="nota.xml", prefix="sep_"):
     try:
-        # Tenta decodificar ignorando erros de encoding comuns em XMLs zumbi
-        xml_text = xml_bytes.decode('utf-8', errors='ignore')
+        # Tenta primeiro Latin-1 (comum em notas fiscais brasileiras)
+        try:
+            xml_text = xml_bytes.decode('iso-8859-1')
+        except UnicodeDecodeError:
+            # Se falhar, tenta UTF-8
+            xml_text = xml_bytes.decode('utf-8', errors='replace') 
+            # 'replace' coloca um sinal de interrogação no lugar do erro, 
+            # assim você percebe que o caractere existe mas o encoding está errado.
+            
         root = ET.fromstring(xml_text)
     except Exception:
-        # Se não for um XML válido, retorna o arquivo original como está
         return [(filename_original, xml_bytes)]
 
     saida = []
