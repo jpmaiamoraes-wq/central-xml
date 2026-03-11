@@ -26,39 +26,40 @@ def split_nfse_abrasf(xml_bytes: bytes, filename_original="nota.xml", prefix="se
     def get_local_tag(tag):
         return tag.split('}')[-1]
 
-    def find_blind_text(element, tags_alvo: list):
-        """Busca o texto de qualquer uma das tags na lista fornecida dentro do elemento."""
+    # --- NOVA FUNÇÃO DE BUSCA RECURSIVA ---
+    def find_deep_text(element, tags_alvo: list):
+        """Busca exaustivamente por qualquer tag da lista em toda a subárvore do elemento."""
         for child in element.iter():
-            if get_local_tag(child.tag) in tags_alvo:
-                return child.text.strip() if child.text else None
+            local = get_local_tag(child.tag)
+            if local in tags_alvo and child.text and child.text.strip():
+                return child.text.strip()
         return None
 
-    # Mantendo todos os padrões solicitados
+    # Padrões de blocos solicitados
     tags_bloco_nota = ['CompNfse', 'Nfse', 'nfdok', 'Reg20Item']
     
-    # Busca todos os candidatos
     candidatos_brutos = [elem for elem in root.iter() if get_local_tag(elem.tag) in tags_bloco_nota]
     
-    # Lógica para evitar duplicidade entre tags pai e filhas (ex: CompNfse vs Nfse)
+    # Filtro pai-filho para evitar duplicidade
     blocos_finais = []
     for i, cand in enumerate(candidatos_brutos):
         is_child = False
         for j, outro in enumerate(candidatos_brutos):
             if i != j:
-                # Verifica se o candidato atual 'cand' está dentro do 'outro'
                 if any(cand is child for child in outro.iter()):
                     is_child = True
                     break
         if not is_child:
             blocos_finais.append(cand)
 
-    # Tags de busca para nome de arquivo
+    # Tags de busca
     tags_numero = ['Numero', 'NumeroNota', 'NumNf']
+    # Adicionamos 'Cnpj' explicitamente para capturar mesmo em níveis profundos
     tags_cnpj = ['Cnpj', 'CpfCnpj', 'ClienteCNPJCPF', 'CpfCnpjPre']
 
     blocos_validos = []
     for bloco in blocos_finais:
-        num_nota = find_blind_text(bloco, tags_numero)
+        num_nota = find_deep_text(bloco, tags_numero)
         if num_nota and num_nota not in numeros_processados:
             blocos_validos.append(bloco)
             numeros_processados.add(num_nota)
@@ -67,14 +68,14 @@ def split_nfse_abrasf(xml_bytes: bytes, filename_original="nota.xml", prefix="se
         return [(filename_original, xml_bytes)]
 
     for nota in blocos_validos:
-        numero = find_blind_text(nota, tags_numero)
-        cnpj = find_blind_text(nota, tags_cnpj) or "sem_cnpj"
+        numero = find_deep_text(nota, tags_numero)
+        # O find_deep_text agora varrerá até encontrar o <Cnpj> dentro de <CpfCnpj>
+        cnpj = find_deep_text(nota, tags_cnpj) or "sem_cnpj"
         
         cnpj_clean = "".join(filter(str.isalnum, cnpj))
         filename = f"{prefix}{cnpj_clean}_{numero}.xml"
         
         try:
-            # tstring gera o XML individual preservando o bloco completo
             xml_out = ET.tostring(nota, encoding="utf-8", xml_declaration=True)
             saida.append((filename, xml_out))
         except Exception:
