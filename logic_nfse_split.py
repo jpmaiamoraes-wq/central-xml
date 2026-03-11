@@ -3,18 +3,29 @@ import zipfile
 import xml.etree.ElementTree as ET
 
 def split_nfse_abrasf(xml_bytes: bytes, filename_original="nota.xml", prefix="sep_"):
+    xml_text = None
+    
+    # 1. Tenta UTF-8 primeiro (padrão moderno e mais comum)
     try:
-        # Tenta primeiro Latin-1 (comum em notas fiscais brasileiras)
+        xml_text = xml_bytes.decode('utf-8')
+    except UnicodeDecodeError:
+        # 2. Se falhar, tenta ISO-8859-1 (padrão brasileiro antigo)
         try:
             xml_text = xml_bytes.decode('iso-8859-1')
-        except UnicodeDecodeError:
-            # Se falhar, tenta UTF-8
-            xml_text = xml_bytes.decode('utf-8', errors='replace') 
-            # 'replace' coloca um sinal de interrogação no lugar do erro, 
-            # assim você percebe que o caractere existe mas o encoding está errado.
+        except Exception:
+            # Se ambos falharem, retorna o original
+            return [(filename_original, xml_bytes)]
+
+    try:
+        # Remove declarações de encoding conflitantes para o ElementTree não travar
+        # Ex: Se decodificamos em string, o ET não aceita ler 'encoding="iso-8859-1"' no texto
+        if xml_text:
+            xml_text = xml_text.replace('encoding="iso-8859-1"', 'encoding="utf-8"')
+            xml_text = xml_text.replace('encoding="ISO-8859-1"', 'encoding="utf-8"')
             
         root = ET.fromstring(xml_text)
-    except Exception:
+    except Exception as e:
+        print(f"Erro no parsing do XML: {e}")
         return [(filename_original, xml_bytes)]
 
     saida = []
