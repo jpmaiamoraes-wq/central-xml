@@ -4,28 +4,20 @@ import xml.etree.ElementTree as ET
 
 def split_nfse_abrasf(xml_bytes: bytes, filename_original="nota.xml", prefix="sep_"):
     xml_text = None
-    
-    # 1. Tenta UTF-8 primeiro (padrão moderno e mais comum)
     try:
         xml_text = xml_bytes.decode('utf-8')
     except UnicodeDecodeError:
-        # 2. Se falhar, tenta ISO-8859-1 (padrão brasileiro antigo)
         try:
             xml_text = xml_bytes.decode('iso-8859-1')
         except Exception:
-            # Se ambos falharem, retorna o original
             return [(filename_original, xml_bytes)]
 
     try:
-        # Remove declarações de encoding conflitantes para o ElementTree não travar
-        # Ex: Se decodificamos em string, o ET não aceita ler 'encoding="iso-8859-1"' no texto
         if xml_text:
             xml_text = xml_text.replace('encoding="iso-8859-1"', 'encoding="utf-8"')
             xml_text = xml_text.replace('encoding="ISO-8859-1"', 'encoding="utf-8"')
-            
         root = ET.fromstring(xml_text)
-    except Exception as e:
-        print(f"Erro no parsing do XML: {e}")
+    except Exception:
         return [(filename_original, xml_bytes)]
 
     saida = []
@@ -35,33 +27,42 @@ def split_nfse_abrasf(xml_bytes: bytes, filename_original="nota.xml", prefix="se
         return tag.split('}')[-1]
 
     def find_blind_text(element, tags_alvo: list):
-        """Busca o texto de qualquer uma das tags na lista fornecida"""
+        """Busca o texto de qualquer uma das tags na lista fornecida dentro do elemento."""
         for child in element.iter():
             if get_local_tag(child.tag) in tags_alvo:
                 return child.text.strip() if child.text else None
         return None
 
-    # --- LÓGICA DE IDENTIFICAÇÃO DE BLOCOS ---
-    # Adicionamos 'nfdok' (Exemplo 1) e 'Reg20Item' (Exemplo 2)
+    # Mantendo todos os padrões solicitados
     tags_bloco_nota = ['CompNfse', 'Nfse', 'nfdok', 'Reg20Item']
     
-    candidatos = [elem for elem in root.iter() if get_local_tag(elem.tag) in tags_bloco_nota]
+    # Busca todos os candidatos
+    candidatos_brutos = [elem for elem in root.iter() if get_local_tag(elem.tag) in tags_bloco_nota]
     
-    # Possíveis nomes para a tag de Número e CNPJ dependendo do layout
+    # Lógica para evitar duplicidade entre tags pai e filhas (ex: CompNfse vs Nfse)
+    blocos_finais = []
+    for i, cand in enumerate(candidatos_brutos):
+        is_child = False
+        for j, outro in enumerate(candidatos_brutos):
+            if i != j:
+                # Verifica se o candidato atual 'cand' está dentro do 'outro'
+                if any(cand is child for child in outro.iter()):
+                    is_child = True
+                    break
+        if not is_child:
+            blocos_finais.append(cand)
+
+    # Tags de busca para nome de arquivo
     tags_numero = ['Numero', 'NumeroNota', 'NumNf']
-    tags_cnpj = ['Cnpj', 'ClienteCNPJCPF', 'CpfCnpjPre']
+    tags_cnpj = ['Cnpj', 'CpfCnpj', 'ClienteCNPJCPF', 'CpfCnpjPre']
 
     blocos_validos = []
-    for cand in candidatos:
-        num_nota = find_blind_text(cand, tags_numero)
-        
-        if num_nota:
-            # Se já processamos esse número, evitamos duplicar (caso de tags aninhadas)
-            if num_nota not in numeros_processados:
-                blocos_validos.append(cand)
-                numeros_processados.add(num_nota)
+    for bloco in blocos_finais:
+        num_nota = find_blind_text(bloco, tags_numero)
+        if num_nota and num_nota not in numeros_processados:
+            blocos_validos.append(bloco)
+            numeros_processados.add(num_nota)
 
-    # Se só houver 1 nota no arquivo inteiro, retornamos vazio (mantém original)
     if len(blocos_validos) <= 1:
         return [(filename_original, xml_bytes)]
 
@@ -69,17 +70,15 @@ def split_nfse_abrasf(xml_bytes: bytes, filename_original="nota.xml", prefix="se
         numero = find_blind_text(nota, tags_numero)
         cnpj = find_blind_text(nota, tags_cnpj) or "sem_cnpj"
         
-        # Limpar caracteres especiais do CNPJ para o nome do arquivo
         cnpj_clean = "".join(filter(str.isalnum, cnpj))
-
         filename = f"{prefix}{cnpj_clean}_{numero}.xml"
         
         try:
-            # Geramos o XML individual para cada bloco identificado
+            # tstring gera o XML individual preservando o bloco completo
             xml_out = ET.tostring(nota, encoding="utf-8", xml_declaration=True)
             saida.append((filename, xml_out))
-        except Exception as e:
-            print(f"Erro ao gerar string para a nota {numero}: {e}")
+        except Exception:
+            continue
 
     return saida
 
