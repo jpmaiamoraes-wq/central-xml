@@ -13,6 +13,13 @@ from logic_sped import parse_sped_from_any
 from logic_nfse_split import split_nfse_abrasf, make_zip_bytes
 from logic_converter import converter_txt_para_xml_lote
 
+
+def to_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sheet1')
+    return output.getvalue()
+
 # Configuração da Página
 st.set_page_config(page_title="Central de Ferramentas XML", layout="wide", page_icon="🧟")
 
@@ -73,6 +80,7 @@ if check_password():
             if st.button("Limpar Lista", type="secondary"):
                 st.session_state.cnpjs = []
                 st.rerun()
+
 
     # --- ABAS ---
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -154,6 +162,9 @@ if check_password():
 
                 st.subheader("📊 Totais por CNPJ")
                 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+                st.success(f"Análise concluída: {total_docs} documentos válidos identificados de um total de {total_xmls} XMLs.")
+                if total_evt > 0:
+                    st.info(f"ℹ️ Foram ignorados {total_evt} arquivos de Eventos/Inutilizações.")
 
                 # --- LÓGICA DO "POP-UP" DE DETALHES ---
                 st.write("---")
@@ -180,12 +191,36 @@ if check_password():
                 # --- BOTOES DE DOWNLOAD (Permanecem abaixo) ---
                 st.write("---")
                 col_res1, col_res2 = st.columns(2)
+                
                 with col_res1:
-                    detalhe = build_detail_from_zip_resumo(zf, own_set)
-                    st.download_button("📊 Baixar Detalhe Agregado (CSV)", pd.DataFrame(detalhe).to_csv(index=False).encode('utf-8'), "detalhe_analise.csv")
+                    # DETALHE AGREGADO
+                    detalhe_data = build_detail_from_zip_resumo(zf, own_set)
+                    df_det = pd.DataFrame(detalhe_data)
+                
+                    # Conversão para Excel
+                    excel_detalhe = to_excel(df_det)
+                
+                    st.download_button(
+                        label="📊 Baixar Detalhe (Excel)",
+                        data=excel_detalhe,
+                        file_name="detalhe_analise_xml.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                
                 with col_res2:
-                    itens = build_items_from_zip_resumo(zf, own_set)
-                    st.download_button("📦 Baixar Planilha de Itens (CSV)", pd.DataFrame(itens).to_csv(index=False).encode('utf-8'), "itens_extracao.csv")
+                    # PLANILHA DE ITENS
+                    itens_data = build_items_from_zip_resumo(zf, own_set)
+                    df_itens = pd.DataFrame(itens_data)
+                
+                    # Conversão para Excel
+                    excel_itens = to_excel(df_itens)
+                
+                    st.download_button(
+                        label="📦 Baixar Itens (Excel)",
+                        data=excel_itens,
+                        file_name="itens_extraidos.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
     # --- ABA 3: SPED ---
     with tab3:
         st.header("Análise de SPED Fiscal")
